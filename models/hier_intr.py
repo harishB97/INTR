@@ -20,9 +20,14 @@ from .transformer import build_transformer
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        )
 
-class INTR(nn.Module):
+from omegaconf import OmegaConf
+from util.node import Node
+from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree, set_anclabels_discretized_phylo_tree
+
+
+class HierINTR(nn.Module):
     """ This is the INTR module that performs explainable image classification """
-    def __init__(self, args, backbone, transformer, num_queries):
+    def __init__(self, args, backbone, transformer, num_queries, spclabel_to_anclabels):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -38,9 +43,41 @@ class INTR(nn.Module):
         # INTR classification head presence vector
         self.presence_vector = nn.Linear(hidden_dim, 1)
 
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.level_to_numclasses = self.get_level_to_numclasses(spclabel_to_anclabels)
+        self.numlevels = len(self.level_to_numclasses)
+
+        # TODO: Modify hidden_dim according to num of levels
+
+        for level, numclasses in self.level_to_numclasses.items():
+            setattr(self, 'query_embed_'+'level'+str(level)) = nn.Embedding(numclasses, int(hidden_dim // self.numlevels))
+        self.query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
+
+        queries = []
+        for spclabel in spclabel_to_anclabels:
+            query = torch.empty(0)
+            anclabels = spclabel_to_anclabels[spclabel]
+            for level, numclasses in self.level_to_numclasses.items():
+                anc_label = anclabels[level]
+                anc_query = getattr(self, 'query_embed_'+'level'+str(level))[anc_label]
+                query = torch.cat([query, anc_query])
+            query = torch.cat([query, self.query_embed_spc[spclabel]])
+            queries.append(query)
+
+        self.query_embed = torch.stack(queries)
+        # self.query_embed = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone = backbone
+
+    def get_level_to_numclasses(self, spclabel_to_anclabels):
+        level_to_numclasses = {}
+        numlevels = list(spclabel_to_anclabels.values())[0]
+        for level in range(numlevels):
+            ancclass_indices = set()
+            for anclabels in spclabel_to_anclabels.values():
+                ancclass_indices.add(anclabels[level])
+            numclasses = len(ancclass_indices)
+            level_to_numclasses[level] = numclasses
+        return level_to_numclasses
 
     def forward(self, samples: NestedTensor):
 
@@ -62,7 +99,7 @@ class INTR(nn.Module):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.backbone(samples)
+        features, pos = self.backbone(samples) # Resnet -> [B, C, H1, W1]
 
         src, mask = features[-1].decompose()
 
@@ -114,14 +151,14 @@ class SetCriterion(nn.Module):
         return losses
 
 
-def build(args):
+def build(args, label_to_spcname):
     """
     In INTR, each query is responsible for learning class specific information.
     So, the `num_queries` here is actually the number of classes in the dataset.
     """
 
-    if args.dataset_name==   'cub':
-        args.num_queries=200
+    if args.dataset_name == 'cub':
+        args.num_queries = 200
     elif 'cub190' in args.dataset_name:
         args.num_queries = 190
     # elif args.dataset_name== 'bird525':
@@ -147,11 +184,25 @@ def build(args):
     backbone = build_backbone(args)
     transformer = build_transformer(args)
 
-    model = INTR(
+    phylo_config = OmegaConf.load(args.phylo_config)
+    # construct the phylo tree
+    assert phylo_config.phyloDistances_string != 'None' # use discretized tree
+    root = construct_discretized_phylo_tree(phylo_config.phylogeny_path, phylo_config.phyloDistances_string)
+    root.assign_all_descendents()
+
+    # Set ancestor label for each node at each level based on level order traversal
+    set_anclabels_discretized_phylo_tree(root)
+
+    spcname_to_leafnode = {node.name: node for node in root.leaf_descendents}
+    spcname_to_anclabels = get_spcname_to_anclabels(spcname_to_leafnode)
+    spclabel_to_anclabels = {spclabel: spcname_to_anclabels[spcname] for spclabel, spcname in label_to_spcname.items()}
+
+    model = HierINTR(
         args,
         backbone,
         transformer,
         num_queries=args.num_queries,
+        spclabel_to_anclabels=spclabel_to_anclabels,
         )
 
     criterion = SetCriterion(args, model=model)

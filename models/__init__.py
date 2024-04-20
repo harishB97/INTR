@@ -7,8 +7,10 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # ------------------------------------------------------------------------
 from .intr import build
+from .hier_intr import build as build_hierINTR
 
 def build_model(args):
     return build(args)
 
-
+def build_model_hierINTR(args, label_to_spcname):
+    return build_hierINTR(args, label_to_spcname)

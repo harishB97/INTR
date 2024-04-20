@@ -81,6 +81,7 @@ class BackboneBase(nn.Module):
             out[name] = NestedTensor(x, mask)
         return out
 
+
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""
     def __init__(self, name: str,
@@ -92,6 +93,7 @@ class Backbone(BackboneBase):
             pretrained=is_main_process(), norm_layer=FrozenBatchNorm2d)
         num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
+
 
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
@@ -105,6 +107,7 @@ class Joiner(nn.Sequential):
             out.append(x)
             pos.append(self[1](x).to(x.tensors.dtype))
         return out, pos
+
 
 def build_backbone(args):
 

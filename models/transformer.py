@@ -196,6 +196,7 @@ class TransformerEncoderLayer(nn.Module):
             return self.forward_pre(src, src_mask, src_key_padding_mask, pos)
         return self.forward_post(src, src_mask, src_key_padding_mask, pos)
 
+
 class TransformerDecoderLayer(nn.Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
@@ -307,13 +308,13 @@ def _get_clones(module, N):
 
 def build_transformer(args):
     return Transformer(
-        d_model=args.hidden_dim,
-        dropout=args.dropout,
-        nhead=args.nheads,
-        dim_feedforward=args.dim_feedforward,
-        num_encoder_layers=args.enc_layers,
-        num_decoder_layers=args.dec_layers,
-        normalize_before=args.pre_norm,
+        d_model=args.hidden_dim, # default=256
+        dropout=args.dropout, # default=0.1
+        nhead=args.nheads, # default=8
+        dim_feedforward=args.dim_feedforward, # default=6
+        num_encoder_layers=args.enc_layers, # default=6
+        num_decoder_layers=args.dec_layers, # default=6
+        normalize_before=args.pre_norm, # default=False
         return_intermediate_dec=True,
     )
 
