@@ -15,14 +15,14 @@ def set_anclabels_discretized_phylo_tree(root):
         for anclabel, node in enumerate(current_level):
             node.discretized_tree_anclabel = anclabel
             next_level += node.children
-        next_level = current_level
+        current_level = next_level
 
 
 def get_anclabels(leafnode):
-    node = leafnode
+    node = leafnode.parent
     anclabels = []
     while node.parent:
-        anclabels.insert(0, node.parent.discretized_tree_anclabel)
+        anclabels.insert(0, node.discretized_tree_anclabel)
         node = node.parent
     return anclabels
 
@@ -31,8 +31,8 @@ def get_spcname_to_anclabels(spcname_to_leafnode):
     return {spcname: get_anclabels(leafnode) for spcname, leafnode in spcname_to_leafnode.items()}
 
 
-def construct_discretized_phylo_tree(phylogeny_path, phyloDistances_string):
-    phylo = PhylogenyCUB(phylogeny_path) # '/home/harishbabu/data/phlyogenyCUB'
+def construct_discretized_phylo_tree(phylogeny_path, phyloDistances_string, remove_singular_child_nodes=True):
+    phylo = PhylogenyCUB(phylogeny_path)
     root = Node("root")
     phyloDistances = [float(x) for x in phyloDistances_string.split(',')[::-1]] + [1]
     num_levels = len(phyloDistances)
@@ -72,20 +72,21 @@ def construct_discretized_phylo_tree(phylogeny_path, phyloDistances_string):
             return node
         else:
             return get_nonsingular_child(node.children[0])
+        
+    if remove_singular_child_nodes:
+        for node in root.nodes_with_children():
+            for i in range(len(node.children)):
 
-    for node in root.nodes_with_children():
-        for i in range(len(node.children)):
+                # maintaining a reference before replacing node.children[i]
+                temp = node.children[i]
 
-            # maintaining a reference before replacing node.children[i]
-            temp = node.children[i]
+                # if node.children[i] is singular it will be replaced with nonsingular descendant 
+                node.children[i] = get_nonsingular_child(node.children[i])
 
-            # if node.children[i] is singular it will be replaced with nonsingular descendant 
-            node.children[i] = get_nonsingular_child(node.children[i])
-
-            # update the name to label mapping according to the new child
-            label = node.children_to_labels[temp.name]
-            del node.children_to_labels[temp.name]
-            node.children_to_labels[node.children[i].name] = label
+                # update the name to label mapping according to the new child
+                label = node.children_to_labels[temp.name]
+                del node.children_to_labels[temp.name]
+                node.children_to_labels[node.children[i].name] = label
 
     return root
 

@@ -24,7 +24,7 @@ class Node:
         self.label = label
         self.weights = None
         self.num_protos_per_child = None #{}
-        self.discretized_tree_label = None
+        self.discretized_tree_anclabel = None
 
     def set_loss_weightage(self, class_size_count):
         self.num_images_of_each_child = []

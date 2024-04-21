@@ -124,6 +124,8 @@ def build(args):
         args.num_queries=200
     elif 'cub190' in args.dataset_name:
         args.num_queries = 190
+    elif 'fish38' in args.dataset_name:
+        args.num_queries = 38
     # elif args.dataset_name== 'bird525':
     #     args.num_queries=525
     # elif args.dataset_name== 'fish':

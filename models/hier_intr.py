@@ -22,7 +22,7 @@ from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
 
 from omegaconf import OmegaConf
 from util.node import Node
-from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree, set_anclabels_discretized_phylo_tree
+from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree, set_anclabels_discretized_phylo_tree, get_spcname_to_anclabels
 
 
 class HierINTR(nn.Module):
@@ -44,12 +44,12 @@ class HierINTR(nn.Module):
         self.presence_vector = nn.Linear(hidden_dim, 1)
 
         self.level_to_numclasses = self.get_level_to_numclasses(spclabel_to_anclabels)
-        self.numlevels = len(self.level_to_numclasses)
+        self.numlevels = len(self.level_to_numclasses) + 1
 
         # TODO: Modify hidden_dim according to num of levels
 
         for level, numclasses in self.level_to_numclasses.items():
-            setattr(self, 'query_embed_'+'level'+str(level)) = nn.Embedding(numclasses, int(hidden_dim // self.numlevels))
+            setattr(self, 'query_embed_'+'level'+str(level), nn.Embedding(numclasses, int(hidden_dim // self.numlevels)))
         self.query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
 
         queries = []
@@ -58,19 +58,23 @@ class HierINTR(nn.Module):
             anclabels = spclabel_to_anclabels[spclabel]
             for level, numclasses in self.level_to_numclasses.items():
                 anc_label = anclabels[level]
-                anc_query = getattr(self, 'query_embed_'+'level'+str(level))[anc_label]
+                anc_query = getattr(self, 'query_embed_'+'level'+str(level))(torch.tensor([anc_label])).squeeze()
                 query = torch.cat([query, anc_query])
-            query = torch.cat([query, self.query_embed_spc[spclabel]])
+            query = torch.cat([query, self.query_embed_spc(torch.tensor([spclabel])).squeeze()])
             queries.append(query)
 
-        self.query_embed = torch.stack(queries)
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.query_embed.weight = nn.Parameter(torch.stack(queries))
+        
+        # breakpoint()
+
         # self.query_embed = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone = backbone
 
     def get_level_to_numclasses(self, spclabel_to_anclabels):
         level_to_numclasses = {}
-        numlevels = list(spclabel_to_anclabels.values())[0]
+        numlevels = len(list(spclabel_to_anclabels.values())[0])
         for level in range(numlevels):
             ancclass_indices = set()
             for anclabels in spclabel_to_anclabels.values():
@@ -161,6 +165,8 @@ def build(args, label_to_spcname):
         args.num_queries = 200
     elif 'cub190' in args.dataset_name:
         args.num_queries = 190
+    elif 'fish38' in args.dataset_name:
+        args.num_queries = 38
     # elif args.dataset_name== 'bird525':
     #     args.num_queries=525
     # elif args.dataset_name== 'fish':
@@ -179,21 +185,29 @@ def build(args, label_to_spcname):
     #     print ("Enter a valid dataset") 
     #     exit()
 
+    print('In build function')
+
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
+    print('Built backbone')
     transformer = build_transformer(args)
+    print('Built transformer')
 
     phylo_config = OmegaConf.load(args.phylo_config)
     # construct the phylo tree
     assert phylo_config.phyloDistances_string != 'None' # use discretized tree
-    root = construct_discretized_phylo_tree(phylo_config.phylogeny_path, phylo_config.phyloDistances_string)
+    root = construct_discretized_phylo_tree(phylo_config.phylogeny_path, phylo_config.phyloDistances_string, remove_singular_child_nodes=False)
     root.assign_all_descendents()
+
+    print('Built tree')
 
     # Set ancestor label for each node at each level based on level order traversal
     set_anclabels_discretized_phylo_tree(root)
 
-    spcname_to_leafnode = {node.name: node for node in root.leaf_descendents}
+    print('Set anc labels')
+
+    spcname_to_leafnode = {node_name: root.get_node(node_name) for node_name in root.leaf_descendents}
     spcname_to_anclabels = get_spcname_to_anclabels(spcname_to_leafnode)
     spclabel_to_anclabels = {spclabel: spcname_to_anclabels[spcname] for spclabel, spcname in label_to_spcname.items()}
 

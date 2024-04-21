@@ -120,7 +120,7 @@ def main(args):
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set=args.test, args=args)
 
-    label_to_spcname = {idx: classname for classname, label in dataset_train.class_to_idx.items()}
+    label_to_spcname = {label: classname for classname, label in dataset_train.class_to_idx.items()}
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -136,9 +136,11 @@ def main(args):
                                    collate_fn=utils.collate_fn, num_workers=args.num_workers)
     data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
                                  drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    print('Built dataset')
 
     # ---------------------------- Get model ----------------------------
     model, criterion= build_model_hierINTR(args, label_to_spcname)
+    print('Built model')
     model.to(device)
     model_without_ddp = model
 
