@@ -139,13 +139,14 @@ def main(args):
     print('Built dataset')
 
     # ---------------------------- Get model ----------------------------
-    model, criterion= build_model_hierINTR(args, label_to_spcname)
+    model, criterion, spclabel_to_anclabels= build_model_hierINTR(args, label_to_spcname)
     print('Built model')
     model.to(device)
     model_without_ddp = model
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        print('Distributed')
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         ## for 2-phase training
         # model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True) 
         model_without_ddp = model.module
@@ -206,9 +207,8 @@ def main(args):
         else:
             checkpoint = torch.load(args.finetune, map_location='cpu')
         state_dict = checkpoint['model']
-        state_dict=utils.load_model(args, state_dict)
-        
-        model_without_ddp.load_state_dict(state_dict)
+        state_dict=utils.load_model(args, state_dict, load_query_embed=False)
+        model_without_ddp.load_state_dict(state_dict, strict=False)
 
         for param in model_without_ddp.parameters():
             param.requires_grad = True
@@ -216,6 +216,9 @@ def main(args):
 
     print("Start training")
     start_time = time.time()
+    print((model.module.query_embed(torch.tensor([0]).cuda()) == model.module.query_embed(torch.tensor([1]).cuda())).sum()) 
+    print((model.module.query_embed(torch.tensor([6]).cuda()) == model.module.query_embed(torch.tensor([7]).cuda())).sum())
+    # breakpoint()
     for epoch in range(args.start_epoch, args.epochs):
 
         ## for 2-phase training
@@ -244,6 +247,10 @@ def main(args):
                     'args': args,
                 }, checkpoint_path)
 
+        print((model.module.query_embed(torch.tensor([0]).cuda()) == model.module.query_embed(torch.tensor([1]).cuda())).sum()) 
+        print((model.module.query_embed(torch.tensor([6]).cuda()) == model.module.query_embed(torch.tensor([7]).cuda())).sum())
+        breakpoint()
+
         test_stats = evaluate(
             model, criterion,  data_loader_val, device, args.output_dir
         )
@@ -256,6 +263,8 @@ def main(args):
         if args.output_dir and utils.is_main_process():
             with (output_dir / args.dataset_name / args.output_sub_dir/ "log.txt").open("a") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

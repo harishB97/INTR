@@ -458,27 +458,30 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
         return torchvision.ops.misc.interpolate(input, size, scale_factor, mode, align_corners)
 
 
-def load_model(args, state_dict):
+def load_model(args, state_dict, load_query_embed=True):
 
-    #   We add/delete new/existing queries when required
-    existing_num_queries = state_dict['query_embed.weight'].shape[0]
+    if load_query_embed:
+        #   We add/delete new/existing queries when required
+        existing_num_queries = state_dict['query_embed.weight'].shape[0]
 
-    if args.num_queries<existing_num_queries:
-        new_query_embeds = state_dict['query_embed.weight'][:args.num_queries, :]
-        state_dict['query_embed.weight'] = new_query_embeds
+        if args.num_queries<existing_num_queries:
+            new_query_embeds = state_dict['query_embed.weight'][:args.num_queries, :]
+            state_dict['query_embed.weight'] = new_query_embeds
 
+        else:
+            times_duplicate = args.num_queries // existing_num_queries
+            new_query_embeds = state_dict['query_embed.weight'].repeat(times_duplicate, 1)
+
+            additional_num_queries= args.num_queries - times_duplicate * existing_num_queries
+            if additional_num_queries > 0:
+                additional_query_embeds = state_dict['query_embed.weight'][:additional_num_queries, :]
+                new_query_embeds = torch.cat((new_query_embeds, additional_query_embeds), dim=0)
+
+            noise = torch.randn(args.num_queries - existing_num_queries, args.hidden_dim) * args.noise_frac
+            new_query_embeds[existing_num_queries:, :] += noise
+            state_dict['query_embed.weight'] = new_query_embeds
     else:
-        times_duplicate = args.num_queries // existing_num_queries
-        new_query_embeds = state_dict['query_embed.weight'].repeat(times_duplicate, 1)
-
-        additional_num_queries= args.num_queries - times_duplicate * existing_num_queries
-        if additional_num_queries > 0:
-            additional_query_embeds = state_dict['query_embed.weight'][:additional_num_queries, :]
-            new_query_embeds = torch.cat((new_query_embeds, additional_query_embeds), dim=0)
-
-        noise = torch.randn(args.num_queries - existing_num_queries, args.hidden_dim) * args.noise_frac
-        new_query_embeds[existing_num_queries:, :] += noise
-        state_dict['query_embed.weight'] = new_query_embeds
+        del state_dict['query_embed.weight']
 
     #   Delete existing DETR heads keys
     keys_to_delete = ["class_embed.weight", "class_embed.bias", 

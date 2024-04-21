@@ -25,6 +25,53 @@ from util.node import Node
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree, set_anclabels_discretized_phylo_tree, get_spcname_to_anclabels
 
 
+class HierarchicalEmbedding(nn.Module):
+    def __init__(self, query_embed_anc, query_embed_spc, spclabel_to_anclabels, level_to_numclasses):
+        super(HierarchicalEmbedding, self).__init__()
+        
+        self.embeddings = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+        self.level_to_numclasses = level_to_numclasses
+        self.numlevels = len(self.level_to_numclasses) + 1
+
+        self.query_embed_anc = query_embed_anc
+        self.query_embed_spc = query_embed_spc
+
+        max_index = max(index_map.keys())
+        self.mapped_indices = torch.zeros(max_index + 1, self.numlevels, dtype=torch.long)
+        for spclabel, anclabels in spclabel_to_anclabels.items():
+            self.mapped_indices[spclabel] = torch.LongTensor(anclabels + [spclabel])
+
+        # Optionally, you might want to add initialization strategies like:
+        # torch.nn.init.uniform_(self.embeddings, -1.0, 1.0)
+        # torch.nn.init.normal_(self.embeddings, mean=0.0, std=1.0)
+
+    def forward(self, indices):
+        # Using precomputed tensor to fetch mapped indices
+        selected_indices = self.mapped_indices[indices]
+
+        for level in range(self.num_levels-1):
+            self.query_embed_anc[level] = 
+
+        # Retrieve embeddings based on mapped indices
+        embed1 = self.embedding1(selected_indices[:, 0])
+        embed2 = self.embedding2(selected_indices[:, 1])
+        embed3 = self.embedding3(selected_indices[:, 2])
+        embed4 = self.embedding4(selected_indices[:, 3])
+
+        # Combine the embeddings, for example by summing
+        combined_embeddings = embed1 + embed2 + embed3 + embed4
+        return combined_embeddings
+
+        # indices are the indexes to fetch embeddings for
+        query = torch.empty(0)
+        anclabels = spclabel_to_anclabels[spclabel]
+        for level, numclasses in self.level_to_numclasses.items():
+            anc_label = anclabels[level]
+            anc_query = query_embed_anc[level](torch.tensor([anc_label])).squeeze()
+            query = torch.cat([query, anc_query])
+        query = torch.cat([query, query_embed_spc(torch.tensor([spclabel])).squeeze()])
+        return self.embeddings[indices]
+
 class HierINTR(nn.Module):
     """ This is the INTR module that performs explainable image classification """
     def __init__(self, args, backbone, transformer, num_queries, spclabel_to_anclabels):
@@ -48,9 +95,36 @@ class HierINTR(nn.Module):
 
         # TODO: Modify hidden_dim according to num of levels
 
+        # for level, numclasses in self.level_to_numclasses.items():
+        #     setattr(self, 'query_embed_'+'level'+str(level), nn.Embedding(numclasses, int(hidden_dim // self.numlevels)))
+        # self.query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
+
+        # queries = []
+        # for spclabel in spclabel_to_anclabels:
+        #     query = torch.empty(0)
+        #     anclabels = spclabel_to_anclabels[spclabel]
+        #     for level, numclasses in self.level_to_numclasses.items():
+        #         anc_label = anclabels[level]
+        #         anc_query = getattr(self, 'query_embed_'+'level'+str(level))(torch.tensor([anc_label])).squeeze()
+        #         query = torch.cat([query, anc_query])
+        #     query = torch.cat([query, self.query_embed_spc(torch.tensor([spclabel])).squeeze()])
+        #     queries.append(query)
+
+        query_embed_anc = {} # maps level (int) to query embeddings
         for level, numclasses in self.level_to_numclasses.items():
-            setattr(self, 'query_embed_'+'level'+str(level), nn.Embedding(numclasses, int(hidden_dim // self.numlevels)))
-        self.query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
+            query_embed_anc[level] = nn.Embedding(numclasses, int(hidden_dim // self.numlevels))
+        query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
+
+        # queries = []
+        # for spclabel in spclabel_to_anclabels:
+        #     query = torch.empty(0)
+        #     anclabels = spclabel_to_anclabels[spclabel]
+        #     for level, numclasses in self.level_to_numclasses.items():
+        #         anc_label = anclabels[level]
+        #         anc_query = query_embed_anc[level](torch.tensor([anc_label])).squeeze()
+        #         query = torch.cat([query, anc_query])
+        #     query = torch.cat([query, query_embed_spc(torch.tensor([spclabel])).squeeze()])
+        #     queries.append(query)
 
         queries = []
         for spclabel in spclabel_to_anclabels:
@@ -58,15 +132,21 @@ class HierINTR(nn.Module):
             anclabels = spclabel_to_anclabels[spclabel]
             for level, numclasses in self.level_to_numclasses.items():
                 anc_label = anclabels[level]
-                anc_query = getattr(self, 'query_embed_'+'level'+str(level))(torch.tensor([anc_label])).squeeze()
+                anc_query = query_embed_anc[level].weight[anc_label]
                 query = torch.cat([query, anc_query])
-            query = torch.cat([query, self.query_embed_spc(torch.tensor([spclabel])).squeeze()])
+            query = torch.cat([query, query_embed_spc.weight[spclabel]])
             queries.append(query)
 
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.query_embed.weight = nn.Parameter(torch.stack(queries))
         
-        # breakpoint()
+        with torch.no_grad():
+            print(self.query_embed.weight[0, 0])
+            print(self.query_embed.weight[1, 0])
+            self.query_embed.weight[1, 0] = -5
+            print(self.query_embed.weight[0, 0])
+            print(self.query_embed.weight[1, 0])
+            breakpoint()
 
         # self.query_embed = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
@@ -222,4 +302,4 @@ def build(args, label_to_spcname):
     criterion = SetCriterion(args, model=model)
     criterion.to(device)
 
-    return model, criterion
+    return model, criterion, spclabel_to_anclabels
