@@ -29,15 +29,15 @@ class HierarchicalEmbedding(nn.Module):
     def __init__(self, query_embed_anc, query_embed_spc, spclabel_to_anclabels, level_to_numclasses):
         super(HierarchicalEmbedding, self).__init__()
         
-        self.embeddings = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+        # self.embeddings = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
         self.level_to_numclasses = level_to_numclasses
         self.numlevels = len(self.level_to_numclasses) + 1
 
         self.query_embed_anc = query_embed_anc
         self.query_embed_spc = query_embed_spc
 
-        max_index = max(index_map.keys())
-        self.mapped_indices = torch.zeros(max_index + 1, self.numlevels, dtype=torch.long)
+        max_index = max(spclabel_to_anclabels.keys())
+        self.mapped_indices = torch.zeros(max_index + 1, self.numlevels, dtype=torch.long).cuda()
         for spclabel, anclabels in spclabel_to_anclabels.items():
             self.mapped_indices[spclabel] = torch.LongTensor(anclabels + [spclabel])
 
@@ -48,29 +48,32 @@ class HierarchicalEmbedding(nn.Module):
     def forward(self, indices):
         # Using precomputed tensor to fetch mapped indices
         selected_indices = self.mapped_indices[indices]
-
-        for level in range(self.num_levels-1):
-            self.query_embed_anc[level] = 
-
-        # Retrieve embeddings based on mapped indices
-        embed1 = self.embedding1(selected_indices[:, 0])
-        embed2 = self.embedding2(selected_indices[:, 1])
-        embed3 = self.embedding3(selected_indices[:, 2])
-        embed4 = self.embedding4(selected_indices[:, 3])
-
-        # Combine the embeddings, for example by summing
-        combined_embeddings = embed1 + embed2 + embed3 + embed4
+        embeds = []
+        for level in range(self.numlevels-1):
+            embeds.append(self.query_embed_anc[level](selected_indices[:, level]))
+        embeds.append(self.query_embed_spc(selected_indices[:, self.numlevels-1]))
+        combined_embeddings = torch.cat(tuple(embeds), dim=1)
         return combined_embeddings
 
-        # indices are the indexes to fetch embeddings for
-        query = torch.empty(0)
-        anclabels = spclabel_to_anclabels[spclabel]
-        for level, numclasses in self.level_to_numclasses.items():
-            anc_label = anclabels[level]
-            anc_query = query_embed_anc[level](torch.tensor([anc_label])).squeeze()
-            query = torch.cat([query, anc_query])
-        query = torch.cat([query, query_embed_spc(torch.tensor([spclabel])).squeeze()])
-        return self.embeddings[indices]
+        # # Retrieve embeddings based on mapped indices
+        # embed1 = self.embedding1(selected_indices[:, 0])
+        # embed2 = self.embedding2(selected_indices[:, 1])
+        # embed3 = self.embedding3(selected_indices[:, 2])
+        # embed4 = self.embedding4(selected_indices[:, 3])
+        # # Combine the embeddings, for example by summing
+        # # combined_embeddings = embed1 + embed2 + embed3 + embed4
+        # combined_embeddings = torch.cat((embed1, embed2, embed3, embed4), dim=1)
+        # return combined_embeddings
+
+        # # indices are the indexes to fetch embeddings for
+        # query = torch.empty(0)
+        # anclabels = spclabel_to_anclabels[spclabel]
+        # for level, numclasses in self.level_to_numclasses.items():
+        #     anc_label = anclabels[level]
+        #     anc_query = query_embed_anc[level](torch.tensor([anc_label])).squeeze()
+        #     query = torch.cat([query, anc_query])
+        # query = torch.cat([query, query_embed_spc(torch.tensor([spclabel])).squeeze()])
+        # return self.embeddings[indices]
 
 class HierINTR(nn.Module):
     """ This is the INTR module that performs explainable image classification """
@@ -92,6 +95,7 @@ class HierINTR(nn.Module):
 
         self.level_to_numclasses = self.get_level_to_numclasses(spclabel_to_anclabels)
         self.numlevels = len(self.level_to_numclasses) + 1
+        self.spclabel_to_anclabels = spclabel_to_anclabels
 
         # TODO: Modify hidden_dim according to num of levels
 
@@ -110,10 +114,10 @@ class HierINTR(nn.Module):
         #     query = torch.cat([query, self.query_embed_spc(torch.tensor([spclabel])).squeeze()])
         #     queries.append(query)
 
-        query_embed_anc = {} # maps level (int) to query embeddings
+        self.query_embed_anc = nn.ModuleDict() # {} # maps level (int) to query embeddings
         for level, numclasses in self.level_to_numclasses.items():
-            query_embed_anc[level] = nn.Embedding(numclasses, int(hidden_dim // self.numlevels))
-        query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
+            self.query_embed_anc[str(level)] = nn.Embedding(numclasses, int(hidden_dim // self.numlevels)).cuda()
+        self.query_embed_spc = nn.Embedding(num_queries, int(hidden_dim // self.numlevels)).cuda()
 
         # queries = []
         # for spclabel in spclabel_to_anclabels:
@@ -126,27 +130,41 @@ class HierINTR(nn.Module):
         #     query = torch.cat([query, query_embed_spc(torch.tensor([spclabel])).squeeze()])
         #     queries.append(query)
 
-        queries = []
-        for spclabel in spclabel_to_anclabels:
-            query = torch.empty(0)
-            anclabels = spclabel_to_anclabels[spclabel]
-            for level, numclasses in self.level_to_numclasses.items():
-                anc_label = anclabels[level]
-                anc_query = query_embed_anc[level].weight[anc_label]
-                query = torch.cat([query, anc_query])
-            query = torch.cat([query, query_embed_spc.weight[spclabel]])
-            queries.append(query)
+        # queries = []
+        # for spclabel in spclabel_to_anclabels:
+        #     query = torch.empty(0)
+        #     anclabels = spclabel_to_anclabels[spclabel]
+        #     for level, numclasses in self.level_to_numclasses.items():
+        #         anc_label = anclabels[level]
+        #         anc_query = query_embed_anc[level].weight[anc_label]
+        #         query = torch.cat([query, anc_query])
+        #     query = torch.cat([query, query_embed_spc.weight[spclabel]])
+        #     queries.append(query)
 
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
-        self.query_embed.weight = nn.Parameter(torch.stack(queries))
+        # queries = []
+        # for spclabel in spclabel_to_anclabels:
+        #     anc_query_list = []
+        #     anclabels = spclabel_to_anclabels[spclabel]
+        #     for level, numclasses in self.level_to_numclasses.items():
+        #         anc_label = anclabels[level]
+        #         anc_query = query_embed_anc[level].weight[anc_label]
+        #         anc_query_list.append(anc_query)
+        #     anc_query_list.append(query_embed_spc.weight[spclabel])
+        #     query = torch.stack(tuple(anc_query_list)).transpose(0, 1).reshape(-1)
+        #     queries.append(query)
+
+        # self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        # self.query_embed.weight = nn.Parameter(torch.stack(queries))
+
+        # self.query_embed = HierarchicalEmbedding(query_embed_anc, query_embed_spc, spclabel_to_anclabels, self.level_to_numclasses)
         
-        with torch.no_grad():
-            print(self.query_embed.weight[0, 0])
-            print(self.query_embed.weight[1, 0])
-            self.query_embed.weight[1, 0] = -5
-            print(self.query_embed.weight[0, 0])
-            print(self.query_embed.weight[1, 0])
-            breakpoint()
+        # with torch.no_grad():
+        #     print(self.query_embed.weight[0, 0])
+        #     print(self.query_embed.weight[1, 0])
+        #     self.query_embed.weight[1, 0] = -5
+        #     print(self.query_embed.weight[0, 0])
+        #     print(self.query_embed.weight[1, 0])
+        #     breakpoint()
 
         # self.query_embed = nn.Embedding(num_queries, int(hidden_dim // self.numlevels))
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
@@ -162,6 +180,23 @@ class HierINTR(nn.Module):
             numclasses = len(ancclass_indices)
             level_to_numclasses[level] = numclasses
         return level_to_numclasses
+
+    def build_hierarchical_query(self):
+        queries = []
+        for spclabel in self.spclabel_to_anclabels:
+            anc_query_list = []
+            anclabels = self.spclabel_to_anclabels[spclabel]
+            for level, numclasses in self.level_to_numclasses.items():
+                anc_label = anclabels[level]
+                anc_query = self.query_embed_anc[str(level)].weight[anc_label]
+                anc_query_list.append(anc_query)
+            anc_query_list.append(self.query_embed_spc.weight[spclabel])
+            # query = torch.stack(tuple(anc_query_list)).transpose(0, 1).reshape(-1)
+            query = torch.cat(tuple(anc_query_list))
+            queries.append(query)
+
+        query_embed = torch.stack(queries)
+        return query_embed
 
     def forward(self, samples: NestedTensor):
 
@@ -187,8 +222,11 @@ class HierINTR(nn.Module):
 
         src, mask = features[-1].decompose()
 
+        hierarchical_query_embed = self.build_hierarchical_query()
+
         assert mask is not None
-        hs, encoder_output, attention_scores, avg_attention_scores = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
+        # hs, encoder_output, attention_scores, avg_attention_scores = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1]) # original
+        hs, encoder_output, attention_scores, avg_attention_scores = self.transformer(self.input_proj(src), mask, hierarchical_query_embed, pos[-1])
 
         query_logits = self.presence_vector(hs[-1])
         out = {'query_logits': query_logits.squeeze(dim=-1)}

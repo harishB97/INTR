@@ -25,10 +25,12 @@ source activate hpnet4
 which python
 
 # # Original cub
-# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port 12345 --use_env main.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name cub190 --num_queries 190
+# CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port 12345 --use_env main.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name cub190_imgnet --num_queries 190
+# CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 --master_port 12345 --use_env main.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name cub190_imgnet --num_queries 190
 
 # # Original fish
 # CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port 12345 --use_env main.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name fish38 --num_queries 38 --output_sub_dir checking
 
 # HierINTR cub190_imgnet
 CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node=4 --master_port 12345 --use_env main_hierINTR.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name cub190_imgnet --num_queries 190 --phylo_config ~/projects/INTR/configs/cub190_phylogeny_disc4.yaml
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 --master_port 12345 --use_env main_hierINTR.py --finetune ~/projects/INTR/pretrained/detr-r50-e632da11.pth --dataset_path ~/data --dataset_name cub190_imgnet --num_queries 190 --phylo_config ~/projects/INTR/configs/cub190_phylogeny_disc4.yaml
