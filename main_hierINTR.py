@@ -120,6 +120,7 @@ def main(args):
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set=args.test, args=args)
 
+    # maps class_id (int) to class_name, the species id assigned by pytorch
     label_to_spcname = {label: classname for classname, label in dataset_train.class_to_idx.items()}
 
     if args.distributed:
@@ -217,34 +218,6 @@ def main(args):
     print("Start training")
     start_time = time.time()
 
-    def get_query_embed(model_object):
-
-        queries = []
-        for spclabel in spclabel_to_anclabels:
-            anc_query_list = []
-            anclabels = spclabel_to_anclabels[spclabel]
-            for level, numclasses in model_object.level_to_numclasses.items():
-                anc_label = anclabels[level]
-                anc_query = model_object.query_embed_anc[str(level)].weight[anc_label]
-                anc_query_list.append(anc_query)
-            anc_query_list.append(model_object.query_embed_spc.weight[spclabel])
-            query = torch.cat(tuple(anc_query_list))
-            queries.append(query)
-
-        query_embed = torch.stack(queries)
-
-        return query_embed
-
-    
-    # # print((model.module.query_embed(torch.tensor([0]).cuda()) == model.module.query_embed(torch.tensor([1]).cuda())).sum()) 
-    # # print((model.module.query_embed(torch.tensor([6]).cuda()) == model.module.query_embed(torch.tensor([7]).cuda())).sum())
-    # query_embed = get_query_embed(model.module)
-    # print((query_embed[0] == query_embed[1]).sum()) 
-    # print((query_embed[6] == query_embed[7]).sum())
-    # print(query_embed[0])
-    # print(query_embed[1])
-    # breakpoint()
-
     for epoch in range(args.start_epoch, args.epochs):
 
         ## for 2-phase training
@@ -272,15 +245,6 @@ def main(args):
                     'epoch': epoch,
                     'args': args,
                 }, checkpoint_path)
-
-        # # print((model.module.query_embed(torch.tensor([0]).cuda()) == model.module.query_embed(torch.tensor([1]).cuda())).sum()) 
-        # # print((model.module.query_embed(torch.tensor([6]).cuda()) == model.module.query_embed(torch.tensor([7]).cuda())).sum())
-        # query_embed = get_query_embed(model.module)
-        # print((query_embed[0] == query_embed[1]).sum()) 
-        # print((query_embed[6] == query_embed[7]).sum())
-        # print(query_embed[0])
-        # print(query_embed[1])
-        # breakpoint()
 
         test_stats = evaluate(
             model, criterion,  data_loader_val, device, args.output_dir

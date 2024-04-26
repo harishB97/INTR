@@ -2,7 +2,7 @@
 
 #SBATCH --account=imageomicswithanuj
 #SBATCH --partition=a100_normal_q
-#SBATCH --time=15-00:00:00 
+#SBATCH --time=15:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH -o ./SLURM/slurm-%j.out
